@@ -86,6 +86,10 @@ venv.bak/
 .dmypy.json
 dmypy.json
 
+# Databricks
+.databricks/
+*.dbc
+
 # R project files
 **.Rproj
 *.utf8.md
