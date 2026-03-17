@@ -1,0 +1,52 @@
+# Project Configuration for LLMOps Course
+
+# Development environment
+dev:
+  catalog: mlops_dev
+  schema: hosseinh
+  volume: arxiv_files
+  llm_endpoint: llama-4-maverick
+  embedding_endpoint: gte_large_en_v1_5
+  warehouse_id: 9c9d5a71fb3773e4
+  vector_search_endpoint: llmops_course_vs_endpoint
+  genie_space_id: placeholder
+
+# Acceptance/Staging environment
+acc:
+  catalog: mlops_acc
+  schema: hosseinh
+  volume: arxiv_files
+  llm_endpoint: meta_llama_3_70b_instruct
+  embedding_endpoint: gte_large_en_v1_5
+  warehouse_id: 9c9d5a71fb3773e4
+  vector_search_endpoint: llmops_course_vs_endpoint
+  genie_space_id: placeholder
+
+# Production environment
+prd:
+  catalog: mlops_prd
+  schema: hosseinh
+  volume: arxiv_files
+  llm_endpoint: meta_llama_3_70b_instruct
+  embedding_endpoint: gte_large_en_v1_5
+  warehouse_id: 9c9d5a71fb3773e4
+  vector_search_endpoint: llmops_course_vs_endpoint
+  genie_space_id: placeholder
+
+# Model configuration
+model_config:
+  temperature: 0.7
+  max_tokens: 2000
+  top_p: 0.95
+
+# Vector search configuration
+vector_search:
+  embedding_dimension: 1024
+  similarity_metric: cosine
+  num_results: 5
+
+# Chunking configuration
+chunking:
+  chunk_size: 512
+  chunk_overlap: 50
+  separator: "\n\n"
