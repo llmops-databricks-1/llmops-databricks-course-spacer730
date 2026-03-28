@@ -59,9 +59,9 @@ testpaths = ["tests"]
 pythonpath = ["."]
 
 [tool.ruff]
-line-length = 90
+line-length = 100
 
-select = [
+lint.select = [
     "F",    # pyflakes rules
     "E",    # pycodestyle error rules
     "W",    # pycodestyle warning rules
@@ -74,15 +74,13 @@ select = [
     "ANN"   # flake8-annotations rules
 ]
 
-ignore = [
+lint.ignore = [
     "D107",   # Missing docstring in `__init__`
     "D203",   # incorrect-blank-line-before-class
     "D213",   # multi-line-summary-second-line
     "C901",   # too complex
     "ERA001", # commented out code
-    "ANN204",
-    "ANN102",
-    "ANN101"
+    "ANN204"
 ]
 
 [tool.ruff.format]

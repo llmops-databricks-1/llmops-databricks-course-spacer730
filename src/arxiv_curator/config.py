@@ -1,6 +1,5 @@
 """Configuration management for Arxiv Curator."""
 
-import os
 from pathlib import Path
 
 import yaml
@@ -21,10 +20,11 @@ class ProjectConfig(BaseModel):
     vector_search_endpoint: str = Field(..., description="Vector search endpoint name")
     genie_space_id: str | None = Field(None, description="Genie space ID for MCP integration")
     system_prompt: str = Field(
-        default="You are a helpful AI assistant that helps users find and understand research papers.",
-        description="System prompt for the agent"
+        default="You are a helpful AI assistant that helps users find and understand "
+        "research papers.",
+        description="System prompt for the agent",
     )
-    
+
     model_config = {"populate_by_name": True}
 
     @classmethod
@@ -53,7 +53,7 @@ class ProjectConfig(BaseModel):
     def schema(self) -> str:
         """Alias for db_schema for backward compatibility."""
         return self.db_schema
-    
+
     @property
     def full_schema_name(self) -> str:
         """Get fully qualified schema name."""
@@ -91,11 +91,11 @@ class ChunkingConfig(BaseModel):
 
 def load_config(config_path: str = "project_config.yml", env: str = "dev") -> ProjectConfig:
     """Load project configuration.
-    
+
     Args:
         config_path: Path to configuration file
         env: Environment name
-        
+
     Returns:
         ProjectConfig instance
     """
@@ -109,7 +109,7 @@ def load_config(config_path: str = "project_config.yml", env: str = "dev") -> Pr
                 config_path = str(candidate)
                 break
             current = current.parent
-    
+
     return ProjectConfig.from_yaml(config_path, env)
 
 
