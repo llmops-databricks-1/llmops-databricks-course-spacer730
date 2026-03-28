@@ -46,6 +46,11 @@ include-package-data = true
 requires = ["setuptools>=72.0"]
 build-backend = "setuptools.build_meta"
 
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["arxiv_curator"]
