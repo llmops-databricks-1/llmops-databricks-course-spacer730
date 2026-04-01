@@ -54,7 +54,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["arxiv_curator"]
+include = ["arxiv_curator", "youtube_qa"]
 
 [tool.setuptools.dynamic]
 version = { file = "version.txt" }
