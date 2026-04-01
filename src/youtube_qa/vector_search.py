@@ -1,8 +1,7 @@
 """Vector search management for YouTube transcript chunks."""
 
 from databricks.sdk import WorkspaceClient
-from databricks.vector_search import VectorSearchIndex
-from databricks.vector_search.client import VectorSearchClient
+from databricks.vector_search.client import VectorSearchClient, VectorSearchIndex
 from loguru import logger
 
 from youtube_qa.config import ProjectConfig
