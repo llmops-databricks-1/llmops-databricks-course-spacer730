@@ -6,10 +6,11 @@ dev:
   schema: hosseinh
   volume: arxiv_files
   llm_endpoint: llama-4-maverick
-  embedding_endpoint: gte_large_en_v1_5
+  embedding_endpoint: databricks-gte-large-en
   warehouse_id: 9c9d5a71fb3773e4
   vector_search_endpoint: llmops_course_vs_endpoint
   genie_space_id: placeholder
+  usage_policy_id: b95878e6-60b1-4aca-a137-fef6c6420e2a
 
 # Acceptance/Staging environment
 acc:
@@ -17,10 +18,11 @@ acc:
   schema: hosseinh
   volume: arxiv_files
   llm_endpoint: meta_llama_3_70b_instruct
-  embedding_endpoint: gte_large_en_v1_5
+  embedding_endpoint: databricks-gte-large-en
   warehouse_id: 9c9d5a71fb3773e4
   vector_search_endpoint: llmops_course_vs_endpoint
   genie_space_id: placeholder
+  usage_policy_id: placeholder
 
 # Production environment
 prd:
@@ -28,10 +30,11 @@ prd:
   schema: hosseinh
   volume: arxiv_files
   llm_endpoint: meta_llama_3_70b_instruct
-  embedding_endpoint: gte_large_en_v1_5
+  embedding_endpoint: databricks-gte-large-en
   warehouse_id: 9c9d5a71fb3773e4
   vector_search_endpoint: llmops_course_vs_endpoint
   genie_space_id: placeholder
+  usage_policy_id: placeholder
 
 # Model configuration
 model_config:
