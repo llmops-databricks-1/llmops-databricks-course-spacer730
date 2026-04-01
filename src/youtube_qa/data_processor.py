@@ -1,339 +1,250 @@
-"""
-arXiv API
-   ↓ (download_and_store_papers)
-PDFs in Volume + arxiv_papers table
-   ↓ (parse_pdfs_with_ai)
-ai_parsed_docs_table (JSON)
-   ↓ (process_chunks)
-arxiv_chunks_table (clean text + metadata)
-   ↓ (VectorSearchManager - separate class) (2.4 notebook)
-Vector Search Index (embeddings)
+"""YouTube transcripts ingestion and chunking.
+
+Pipeline:
+    list[YouTube URLs]
+        -> download_and_store_transcripts
+        -> youtube_videos (Delta)
+        -> process_chunks
+        -> youtube_chunks_table (Delta, CDF enabled)
+        -> Vector Search index (see VectorSearchManager)
 """
 
-import json
-import os
+from __future__ import annotations
+
 import re
 import time
+from urllib.parse import parse_qs, urlparse
 
-import arxiv
 from loguru import logger
 from pyspark.sql import SparkSession
 from pyspark.sql import types as T
-from pyspark.sql.functions import (
-    col,
-    concat_ws,
-    current_timestamp,
-    explode,
-    udf,
-)
-from pyspark.sql.types import ArrayType, StringType, StructField, StructType
+from pyspark.sql.functions import col, current_timestamp
+from youtube_transcript_api import YouTubeTranscriptApi
 
-from arxiv_curator.config import ProjectConfig
+from youtube_qa.config import ProjectConfig
 
 
 class DataProcessor:
-    """
-    DataProcessor handles the complete workflow of:
-    - Downloading papers from arXiv
-    - Storing paper metadata
-    - Parsing PDFs with ai_parse_document
-    - Extracting and cleaning text chunks
-    - Saving chunks to Delta tables
-    """
+    """Download YouTube transcripts, store them, and create text chunks."""
+
+    _CHUNK_SIZE_CHARS = 1500
+    _CHUNK_OVERLAP_CHARS = 200
 
     def __init__(self, spark: SparkSession, config: ProjectConfig) -> None:
-        """
-        Initialize DataProcessor with Spark session and configuration.
+        """Initialize the processor.
 
         Args:
-            spark: SparkSession instance
-            config: ProjectConfig object with table configurations
+            spark: Spark session.
+            config: Project config.
         """
         self.spark = spark
         self.cfg = config
         self.catalog = config.catalog
         self.schema = config.schema
-        self.volume = config.volume
 
         self.end = time.strftime("%Y%m%d%H%M", time.gmtime())
-        self.pdf_dir = f"/Volumes/{self.catalog}/{self.schema}/{self.volume}/{self.end}"
-        os.makedirs(self.pdf_dir, exist_ok=True)
-        self.papers_table = f"{self.catalog}.{self.schema}.arxiv_papers"
-        self.parsed_table = f"{self.catalog}.{self.schema}.ai_parsed_docs_table"
 
-    def _get_range_start(self) -> str:
+        self.videos_table = f"{self.catalog}.{self.schema}.youtube_videos"
+        self.chunks_table = f"{self.catalog}.{self.schema}.youtube_chunks_table"
+
+    @staticmethod
+    def _extract_video_id(url_or_id: str) -> str:
+        """Extract a YouTube video id from a URL or return the id as-is."""
+        candidate = url_or_id.strip()
+
+        if re.fullmatch(r"[0-9A-Za-z_-]{11}", candidate):
+            return candidate
+
+        parsed = urlparse(candidate)
+        host = (parsed.hostname or "").lower()
+        path = parsed.path.strip("/")
+
+        if host == "youtu.be":
+            vid = path.split("/")[0]
+            if vid:
+                return vid
+
+        if host.endswith("youtube.com"):
+            if path == "watch":
+                qs = parse_qs(parsed.query)
+                vid = (qs.get("v") or [""])[0]
+                if vid:
+                    return vid
+
+            if path.startswith("shorts/"):
+                parts = path.split("/")
+                if len(parts) >= 2 and parts[1]:
+                    return parts[1]
+
+            if path.startswith("embed/"):
+                parts = path.split("/")
+                if len(parts) >= 2 and parts[1]:
+                    return parts[1]
+
+        raise ValueError(f"Could not extract video id from: {url_or_id}")
+
+    @staticmethod
+    def _normalize_text(text: str) -> str:
+        """Normalize transcript text by collapsing whitespace."""
+        return re.sub(r"\s+", " ", text).strip()
+
+    def _fetch_transcript_text(self, video_id: str) -> str:
+        """Fetch transcript and return as plain text.
+
+        Notes:
+            youtube-transcript-api returns a list of dict segments with keys like
+            'text', 'start', 'duration'. This keeps only the combined text.
         """
-        Get start time range for arxiv paper search.
-        If arxiv_papers table exists, uses max(processed) as start.
-        Otherwise, uses 3 days ago as start.
+        segments = YouTubeTranscriptApi.get_transcript(video_id)
+        combined = " ".join(seg.get("text", "") for seg in segments)
+        return self._normalize_text(combined)
 
-        Returns:
-            start string in "YYYYMMDDHHMM" format
-        """
+    @classmethod
+    def _chunk_text(cls, text: str) -> list[str]:
+        """Split text into overlapping fixed-size chunks (character-based)."""
+        cleaned = cls._normalize_text(text)
+        if not cleaned:
+            return []
 
-        if self.spark.catalog.tableExists(self.papers_table):
-            result = self.spark.sql(f"""
-                SELECT max(processed)
-                FROM {self.papers_table}
-            """).collect()
-            start = str(result[0][0])
-            logger.info(f"Found existing arxiv_papers table. Starting from: {start}")
-        else:
-            start = time.strftime("%Y%m%d%H%M", time.gmtime(time.time() - 24 * 3600 * 3))
-            logger.info(f"No existing arxiv_papers table. Starting from 3 days ago: {start}")
-        return start
+        size = cls._CHUNK_SIZE_CHARS
+        overlap = cls._CHUNK_OVERLAP_CHARS
+        step = max(1, size - overlap)
 
-    def download_and_store_papers(
-        self,
-    ) -> list[dict] | None:
-        """
-        Download papers from arxiv and store metadata
-        in arxiv_papers table.
+        return [cleaned[i : i + size] for i in range(0, len(cleaned), step)]
 
-        Returns:
-            List of paper metadata dictionaries if papers were downloaded,
-            otherwise None
-        """
-        start = self._get_range_start()
-
-        # Search for papers in arxiv
-        client = arxiv.Client()
-        search = arxiv.Search(query=f"cat:cs.AI AND submittedDate:[{start} TO {self.end}]")
-        papers = client.results(search)
-
-        # Download papers and collect metadata
-        records = []
-
-        for paper in papers:
-            paper_id = paper.get_short_id()
-            try:
-                paper.download_pdf(dirpath=self.pdf_dir, filename=f"{paper_id}.pdf")
-                # Collect metadata
-                records.append(
-                    {
-                        "arxiv_id": paper_id,
-                        "title": paper.title,
-                        "authors": [author.name for author in paper.authors],
-                        "summary": paper.summary,
-                        "pdf_url": paper.pdf_url,
-                        "published": int(paper.published.strftime("%Y%m%d%H%M")),
-                        "processed": int(self.end),
-                        "volume_path": f"{self.pdf_dir}/{paper_id}.pdf",
-                    }
-                )
-                break
-            except Exception:
-                logger.warning(f"Paper {paper_id} was not successfully processed.")
-            # Avoid hitting API rate limits
-            time.sleep(3)
-
-        # Only process if we have records
-        if len(records) == 0:
-            logger.info("No new papers found.")
+    def download_and_store_transcripts(self, urls: list[str]) -> list[dict] | None:
+        """Download transcripts and store into `youtube_videos` Delta table."""
+        if not urls:
+            logger.info("No URLs provided.")
             return None
 
-        logger.info(f"Downloaded {len(records)} papers to {self.pdf_dir}")
+        records: list[dict] = []
 
-        # Create DataFrame and save to arxiv_papers table
+        for url in urls:
+            video_id = self._extract_video_id(url)
+            try:
+                transcript_text = self._fetch_transcript_text(video_id)
+                if not transcript_text:
+                    logger.warning(f"Empty transcript for video_id={video_id}")
+                    continue
+
+                records.append(
+                    {
+                        "video_id": video_id,
+                        "source_url": url,
+                        "transcript_text": transcript_text,
+                        "processed": int(self.end),
+                    }
+                )
+            except Exception as exc:
+                logger.warning(f"Failed to fetch transcript for video_id={video_id}: {exc}")
+
+        if not records:
+            logger.info("No transcripts downloaded.")
+            return None
+
         schema = T.StructType(
             [
-                T.StructField("arxiv_id", T.StringType(), False),
-                T.StructField("title", T.StringType(), True),
-                T.StructField("authors", T.ArrayType(T.StringType()), True),
-                T.StructField("summary", T.StringType(), True),
-                T.StructField("pdf_url", T.StringType(), True),
-                T.StructField("published", T.LongType(), True),
+                T.StructField("video_id", T.StringType(), False),
+                T.StructField("source_url", T.StringType(), True),
+                T.StructField("transcript_text", T.StringType(), True),
                 T.StructField("processed", T.LongType(), True),
-                T.StructField("volume_path", T.StringType(), True),
             ]
         )
 
-        metadata_df = self.spark.createDataFrame(records, schema=schema).withColumn(
+        df = self.spark.createDataFrame(records, schema=schema).withColumn(
             "ingest_ts", current_timestamp()
         )
 
-        # Create table if it doesn't exist
-        metadata_df.write.format("delta").mode("ignore").saveAsTable(self.papers_table)
+        df.write.format("delta").mode("ignore").saveAsTable(self.videos_table)
+        df.createOrReplaceTempView("new_videos")
 
-        # MERGE to avoid duplicates based on arxiv_id
-        metadata_df.createOrReplaceTempView("new_papers")
         self.spark.sql(f"""
-            MERGE INTO {self.papers_table} target
-            USING new_papers source
-            ON target.arxiv_id = source.arxiv_id
+            MERGE INTO {self.videos_table} target
+            USING new_videos source
+            ON target.video_id = source.video_id
             WHEN NOT MATCHED THEN INSERT (
-                arxiv_id, title, authors, summary, pdf_url,
-                published, processed, volume_path
+                video_id, source_url, transcript_text, processed
             ) VALUES (
-                source.arxiv_id, source.title, source.authors,
-                source.summary, source.pdf_url, source.published,
-                source.processed, source.volume_path
+                source.video_id, source.source_url, source.transcript_text, source.processed
             )
         """)
-        logger.info(f"Merged {len(records)} paper records into {self.papers_table}")
+
+        logger.info(f"Merged {len(records)} transcript records into {self.videos_table}")
         return records
 
-    def parse_pdfs_with_ai(self) -> None:
-        """
-        Parse PDFs using ai_parse_document and store in ai_parsed_docs table.
-
-        """
-
-        self.spark.sql(f"""
-            CREATE TABLE IF NOT EXISTS {self.parsed_table} (
-                path STRING,
-                parsed_content STRING,
-                processed LONG
-            )
-        """)
-
-        self.spark.sql(f"""
-            INSERT INTO {self.parsed_table}
-            SELECT
-                path,
-                ai_parse_document(content) AS parsed_content,
-                {self.end} AS processed
-            FROM READ_FILES(
-                "{self.pdf_dir}",
-                format => 'binaryFile'
-            )
-        """)
-
-        logger.info(f"Parsed PDFs from {self.pdf_dir} and saved to {self.parsed_table}")
-
-    @staticmethod
-    def _extract_chunks(parsed_content_json: str) -> list[tuple[str, str]]:
-        """
-        Extract chunks from parsed_content JSON.
-
-        Args:
-            parsed_content_json: JSON string containing
-            parsed document structure
-
-        Returns:
-            List of tuples containing (chunk_id, content)
-        """
-        parsed_dict = json.loads(parsed_content_json)
-        chunks = []
-
-        for element in parsed_dict.get("document", {}).get("elements", []):
-            if element.get("type") == "text":
-                chunk_id = element.get("id", "")
-                content = element.get("content", "")
-                chunks.append((chunk_id, content))
-
-        return chunks
-
-    @staticmethod
-    def _extract_paper_id(path: str) -> str:
-        """
-        Extract paper ID from file path.
-
-        Args:
-            path: File path (e.g., "/path/to/paper_id.pdf")
-
-        Returns:
-            Paper ID extracted from the path
-        """
-        return path.replace(".pdf", "").split("/")[-1]
-
-    @staticmethod
-    def _clean_chunk(text: str) -> str:
-        """
-        Clean and normalize chunk text
-        Args:
-            text: Raw text content
-
-        Returns:
-            Cleaned text content
-        """
-        # Fix hyphenation across line breaks:
-        # "docu-\nments" => "documents"
-        t = re.sub(r"(\w)-\s*\n\s*(\w)", r"\1\2", text)
-
-        # Collapse internal newlines into spaces
-        t = re.sub(r"\s*\n\s*", " ", t)
-
-        # Collapse repeated whitespace
-        t = re.sub(r"\s+", " ", t)
-
-        return t.strip()
-
     def process_chunks(self) -> None:
-        """
-        Process parsed documents to extract and clean chunks.
-        Reads from ai_parsed_docs table and saves to arxiv_chunks table.
-        """
-        logger.info(f"Processing parsed documents from {self.parsed_table} for end date {self.end}")
+        """Create chunk rows from transcripts and write them to the chunks table."""
+        logger.info(f"Chunking transcripts from {self.videos_table} for processed={self.end}")
 
-        df = self.spark.table(self.parsed_table).where(f"processed = {self.end}")
-
-        # Define schema for the extracted chunks
-        chunk_schema = ArrayType(
-            StructType(
-                [
-                    StructField("chunk_id", StringType(), True),
-                    StructField("content", StringType(), True),
-                ]
-            )
-        )
-
-        extract_chunks_udf = udf(self._extract_chunks, chunk_schema)
-        extract_paper_id_udf = udf(self._extract_paper_id, StringType())
-        clean_chunk_udf = udf(self._clean_chunk, StringType())
-
-        metadata_df = self.spark.table(self.papers_table).select(
-            col("arxiv_id"),
-            col("title"),
-            col("summary"),
-            concat_ws(", ", col("authors")).alias("authors"),
-            (col("published") / 100000000).cast("int").alias("year"),
-            ((col("published") % 100000000) / 1000000).cast("int").alias("month"),
-            ((col("published") % 1000000) / 10000).cast("int").alias("day"),
-        )
-
-        # Create the transformed dataframe
-        chunks_df = (
-            df.withColumn("arxiv_id", extract_paper_id_udf(col("path")))
-            .withColumn("chunks", extract_chunks_udf(col("parsed_content")))
-            .withColumn("chunk", explode(col("chunks")))
-            .select(
-                col("arxiv_id"),
-                col("chunk.chunk_id").alias("chunk_id"),
-                clean_chunk_udf(col("chunk.content")).alias("text"),
-                concat_ws("_", col("arxiv_id"), col("chunk.chunk_id")).alias("id"),
-            )
-            .join(metadata_df, "arxiv_id", "left")
-        )
-
-        # Write to table
-        arxiv_chunks_table = f"{self.catalog}.{self.schema}.arxiv_chunks_table"
-        chunks_df.write.mode("append").saveAsTable(arxiv_chunks_table)
-        logger.info(f"Saved chunks to {arxiv_chunks_table}")
-
-        # Enable Change Data Feed
         self.spark.sql(f"""
-            ALTER TABLE {arxiv_chunks_table}
-            SET TBLPROPERTIES (delta.enableChangeDataFeed = true)
+            CREATE TABLE IF NOT EXISTS {self.chunks_table} (
+                id STRING,
+                video_id STRING,
+                chunk_index INT,
+                text STRING,
+                processed LONG,
+                ingest_ts TIMESTAMP
+            )
+            USING DELTA
         """)
-        logger.info(f"Change Data Feed enabled for {arxiv_chunks_table}")
 
-    def process_and_save(self) -> None:
-        """
-        Complete workflow: download papers, parse PDFs, and process chunks.
-        """
-        # Step 1: Download papers and store metadata
-        records = self.download_and_store_papers()
+        rows = (
+            self.spark.table(self.videos_table)
+            .where(col("processed") == int(self.end))
+            .select("video_id", "transcript_text")
+            .collect()
+        )
 
-        # Only continue if we have new papers
-        if records is None:
-            logger.info("No new papers to process. Exiting.")
+        chunk_records: list[dict] = []
+        for row in rows:
+            video_id = row["video_id"]
+            transcript_text = row["transcript_text"] or ""
+
+            for idx, chunk in enumerate(self._chunk_text(transcript_text)):
+                chunk_records.append(
+                    {
+                        "id": f"{video_id}_{idx}",
+                        "video_id": video_id,
+                        "chunk_index": idx,
+                        "text": chunk,
+                        "processed": int(self.end),
+                    }
+                )
+
+        if not chunk_records:
+            logger.info("No chunks produced.")
             return
 
-        # Step 2: Parse PDFs with ai_parse_document
-        self.parse_pdfs_with_ai()
-        logger.info("Parsed documents.")
+        chunk_schema = T.StructType(
+            [
+                T.StructField("id", T.StringType(), False),
+                T.StructField("video_id", T.StringType(), False),
+                T.StructField("chunk_index", T.IntegerType(), False),
+                T.StructField("text", T.StringType(), False),
+                T.StructField("processed", T.LongType(), True),
+            ]
+        )
 
-        # Step 3: Process chunks
+        chunks_df = self.spark.createDataFrame(chunk_records, schema=chunk_schema).withColumn(
+            "ingest_ts", current_timestamp()
+        )
+
+        chunks_df.write.mode("append").saveAsTable(self.chunks_table)
+        logger.info(f"Saved {len(chunk_records)} chunks to {self.chunks_table}")
+
+        self.spark.sql(f"""
+            ALTER TABLE {self.chunks_table}
+            SET TBLPROPERTIES (delta.enableChangeDataFeed = true)
+        """)
+        logger.info(f"Change Data Feed enabled for {self.chunks_table}")
+
+    def process_and_save(self, urls: list[str]) -> None:
+        """Download transcripts and write transcript chunks."""
+        records = self.download_and_store_transcripts(urls)
+        if records is None:
+            logger.info("No new videos to process. Exiting.")
+            return
+
         self.process_chunks()
         logger.info("Processing complete!")
