@@ -20,6 +20,7 @@ from pyspark.sql import SparkSession
 from pyspark.sql import types as T
 from pyspark.sql.functions import col, current_timestamp
 from youtube_transcript_api import YouTubeTranscriptApi
+from youtube_transcript_api.proxies import WebshareProxyConfig
 
 from youtube_qa.config import ProjectConfig
 
@@ -30,12 +31,21 @@ class DataProcessor:
     _CHUNK_SIZE_CHARS = 1500
     _CHUNK_OVERLAP_CHARS = 200
 
-    def __init__(self, spark: SparkSession, config: ProjectConfig) -> None:
+    def __init__(
+        self,
+        spark: SparkSession,
+        config: ProjectConfig,
+        *,
+        proxy_username: str | None = None,
+        proxy_password: str | None = None,
+    ) -> None:
         """Initialize the processor.
 
         Args:
             spark: Spark session.
             config: Project config.
+            proxy_username: Webshare proxy username.
+            proxy_password: Webshare proxy password.
         """
         self.spark = spark
         self.cfg = config
@@ -46,6 +56,17 @@ class DataProcessor:
 
         self.videos_table = f"{self.catalog}.{self.schema}.youtube_videos"
         self.chunks_table = f"{self.catalog}.{self.schema}.youtube_chunks_table"
+
+        if proxy_username and proxy_password:
+            self.ytt_api = YouTubeTranscriptApi(
+                proxy_config=WebshareProxyConfig(
+                    proxy_username=proxy_username,
+                    proxy_password=proxy_password,
+                    retries_when_blocked=1,
+                )
+            )
+        else:
+            self.ytt_api = YouTubeTranscriptApi()
 
     @staticmethod
     def _extract_video_id(url_or_id: str) -> str:
@@ -89,14 +110,9 @@ class DataProcessor:
         return re.sub(r"\s+", " ", text).strip()
 
     def _fetch_transcript_text(self, video_id: str) -> str:
-        """Fetch transcript and return as plain text.
-
-        Notes:
-            youtube-transcript-api returns a list of dict segments with keys like
-            'text', 'start', 'duration'. This keeps only the combined text.
-        """
-        segments = YouTubeTranscriptApi.get_transcript(video_id)
-        combined = " ".join(seg.get("text", "") for seg in segments)
+        """Fetch transcript and return as plain text."""
+        transcript = self.ytt_api.fetch(video_id)
+        combined = " ".join(snippet.text for snippet in transcript)
         return self._normalize_text(combined)
 
     @classmethod

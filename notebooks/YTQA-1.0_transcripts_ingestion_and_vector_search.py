@@ -48,6 +48,7 @@ logger.info(f"Schema: {cfg.schema}")
 # COMMAND ----------
 
 youtube_urls: list[str] = [
+    "https://www.youtube.com/watch?v=Us-w_j_4qGo"
     # "https://www.youtube.com/watch?v=VIDEO_ID",
     # "https://youtu.be/VIDEO_ID",
 ]
@@ -62,8 +63,17 @@ youtube_urls: list[str] = [
 # MAGIC - `catalog.schema.youtube_chunks_table` (with Change Data Feed enabled)
 
 # COMMAND ----------
+ws_username = dbutils.secrets.get(scope="hosseinh-secrets", key="ws-username")
+ws_password = dbutils.secrets.get(scope="hosseinh-secrets", key="ws-password")
 
-processor = DataProcessor(spark=spark, config=cfg)
+# COMMAND ----------
+
+processor = DataProcessor(
+    spark=spark,
+    config=cfg,
+    proxy_username=ws_username,
+    proxy_password=ws_password,
+)
 processor.process_and_save(youtube_urls)
 
 # COMMAND ----------
@@ -79,7 +89,7 @@ chunks_table = f"{cfg.catalog}.{cfg.schema}.youtube_chunks_table"
 logger.info(f"Videos table: {videos_table}")
 logger.info(f"Chunks table: {chunks_table}")
 
-spark.table(videos_table).orderBy("ingest_ts", ascending=False).display()
+spark.table(videos_table).orderBy("ingest_ts", ascending=False).show(truncate=False)
 
 # COMMAND ----------
 
@@ -88,7 +98,7 @@ spark.table(videos_table).orderBy("ingest_ts", ascending=False).display()
 
 # COMMAND ----------
 
-spark.table(chunks_table).orderBy("ingest_ts", ascending=False).display()
+spark.table(chunks_table).orderBy("ingest_ts", ascending=False).show(truncate=False)
 
 # COMMAND ----------
 
