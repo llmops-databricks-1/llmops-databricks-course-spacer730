@@ -23,7 +23,8 @@ dependencies = [
     "databricks-agents==1.8.2",
     "psycopg==3.3.2",
     "psycopg-pool==3.3.0",
-    "psycopg[binary]==3.3.2"
+    "psycopg[binary]==3.3.2",
+    "youtube-transcript-api>=1.2.4",
 ]
 
 [project.optional-dependencies]
@@ -46,9 +47,14 @@ include-package-data = true
 requires = ["setuptools>=72.0"]
 build-backend = "setuptools.build_meta"
 
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["your_custom_package*"]
+include = ["arxiv_curator", "youtube_qa"]
 
 [tool.setuptools.dynamic]
 version = { file = "version.txt" }
@@ -59,9 +65,9 @@ testpaths = ["tests"]
 pythonpath = ["."]
 
 [tool.ruff]
-line-length = 90
+line-length = 100
 
-select = [
+lint.select = [
     "F",    # pyflakes rules
     "E",    # pycodestyle error rules
     "W",    # pycodestyle warning rules
@@ -74,15 +80,13 @@ select = [
     "ANN"   # flake8-annotations rules
 ]
 
-ignore = [
+lint.ignore = [
     "D107",   # Missing docstring in `__init__`
     "D203",   # incorrect-blank-line-before-class
     "D213",   # multi-line-summary-second-line
     "C901",   # too complex
     "ERA001", # commented out code
-    "ANN204",
-    "ANN102",
-    "ANN101"
+    "ANN204"
 ]
 
 [tool.ruff.format]
