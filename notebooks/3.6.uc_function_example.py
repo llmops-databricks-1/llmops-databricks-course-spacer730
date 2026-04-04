@@ -109,3 +109,5 @@ result = spark.sql(f"""
         {catalog}.{schema}.divide_numbers(10, 3)   AS divide_result
 """)
 result.show()
+
+# COMMAND ----------
