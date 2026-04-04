@@ -124,7 +124,8 @@ with psycopg.connect(conn_string) as conn:
 from arxiv_curator.memory import LakebaseMemory
 
 memory = LakebaseMemory(
-    project_id=project_id,
+    host=host,
+    instance_name=project_id,
 )
 
 # COMMAND ----------
