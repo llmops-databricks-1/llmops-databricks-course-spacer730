@@ -23,7 +23,8 @@ dependencies = [
     "databricks-agents==1.8.2",
     "psycopg==3.3.2",
     "psycopg-pool==3.3.0",
-    "psycopg[binary]==3.3.2"
+    "psycopg[binary]==3.3.2",
+    "youtube-transcript-api>=1.2.4",
 ]
 
 [project.optional-dependencies]
@@ -53,7 +54,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["arxiv_curator"]
+include = ["arxiv_curator", "youtube_qa"]
 
 [tool.setuptools.dynamic]
 version = { file = "version.txt" }
