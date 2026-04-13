@@ -30,7 +30,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install ../arxiv_curator-0.1.0-py3-none-any.whl --force-reinstall
+# MAGIC %pip install ../lecture_materials.arxiv_curator-0.1.0-py3-none-any.whl --force-reinstall
 
 # COMMAND ----------
 
@@ -45,7 +45,7 @@ from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.functions import col
 
-from arxiv_curator.config import get_env, load_config
+from lecture_materials.arxiv_curator.config import get_env, load_config
 
 # COMMAND ----------
 

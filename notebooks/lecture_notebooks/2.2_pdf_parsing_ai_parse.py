@@ -9,14 +9,14 @@
 # MAGIC - Storing parsed content in Delta tables
 
 # COMMAND ----------
-# %pip install ../arxiv_curator-0.1.0-py3-none-any.whl
+# %pip install ../lecture_materials.arxiv_curator-0.1.0-py3-none-any.whl
 # COMMAND ----------
 
 from databricks.connect import DatabricksSession
 from loguru import logger
 
-from arxiv_curator.config import get_env, load_config
-from arxiv_curator.data_processor import DataProcessor
+from lecture_materials.arxiv_curator.config import get_env, load_config
+from lecture_materials.arxiv_curator.data_processor import DataProcessor
 
 # COMMAND ----------
 
@@ -26,7 +26,7 @@ logger.info("✅ Using Databricks Connect Spark session")
 env = get_env(spark)
 cfg = load_config("../project_config.yml", env)
 
-# Initialize the DataProcessor (reusable class from arxiv_curator package)
+# Initialize the DataProcessor (reusable class from lecture_materials.arxiv_curator package)
 processor = DataProcessor(spark=spark, config=cfg)
 
 logger.info(f"Catalog: {cfg.catalog}, Schema: {cfg.schema}, Volume: {cfg.volume}")
@@ -51,7 +51,7 @@ logger.info(f"Catalog: {cfg.catalog}, Schema: {cfg.schema}, Volume: {cfg.volume}
 # MAGIC %md
 # MAGIC ## 2. Download PDFs, Parse, and Create Chunks
 # MAGIC
-# MAGIC The `DataProcessor` class from `arxiv_curator.data_processor` handles the full pipeline:
+# MAGIC The `DataProcessor` class from `lecture_materials.arxiv_curator.data_processor` handles the full pipeline:
 # MAGIC 1. Download PDFs for unprocessed papers from arXiv
 # MAGIC 2. Update `arxiv_papers` table with processed timestamps and volume paths
 # MAGIC 3. Parse PDFs using AI Parse Documents (`ai_parse_document`)

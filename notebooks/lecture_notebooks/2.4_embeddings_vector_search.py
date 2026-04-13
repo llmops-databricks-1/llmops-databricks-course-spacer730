@@ -16,8 +16,8 @@ from databricks.vector_search.reranker import DatabricksReranker
 from loguru import logger
 from pyspark.sql import SparkSession
 
-from arxiv_curator.config import get_env, load_config
-from arxiv_curator.vector_search import VectorSearchManager
+from lecture_materials.arxiv_curator.config import get_env, load_config
+from lecture_materials.arxiv_curator.vector_search import VectorSearchManager
 
 # COMMAND ----------
 
@@ -108,7 +108,7 @@ schema = cfg.schema
 
 # COMMAND ----------
 
-# Using VectorSearchManager from arxiv_curator.vector_search
+# Using VectorSearchManager from lecture_materials.arxiv_curator.vector_search
 # This handles endpoint and index creation automatically
 
 vs_manager = VectorSearchManager(

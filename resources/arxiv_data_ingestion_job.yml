@@ -16,7 +16,7 @@ resources:
         - task_key: arxiv_data_ingestion
           environment_key: default
           notebook_task:
-            notebook_path: ../notebooks/1.3_arxiv_data_ingestion.py
+            notebook_path: ../notebooks/lecture_notebooks/1.3_arxiv_data_ingestion.py
             base_parameters:
               env: ${bundle.target}
               git_sha: "${var.git_sha}"
