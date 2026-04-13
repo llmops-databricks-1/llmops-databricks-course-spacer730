@@ -31,6 +31,10 @@ wheels/
 *.egg
 MANIFEST
 
+# Removing uv.lock for now since we use local index and it causes issues with CI.
+# Can be added back in the future
+uv.lock
+
 # PyInstaller
 #  Usually these files are written by a python script from a template
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
