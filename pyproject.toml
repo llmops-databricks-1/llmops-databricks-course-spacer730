@@ -37,11 +37,6 @@ dev = ["databricks-connect>=17.0, <18",
 ci = ["pre-commit>=4.1.0, <5",
       "pytest>=8.3.4, <9"]
 
-[[index]]
-name = "rabobank-nexus"
-url = "https://nexus3.rabobank.nl/repository/pypi-proxy/simple"
-default = true
-
 [tool.setuptools]
 include-package-data = true
 
