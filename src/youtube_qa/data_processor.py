@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 import time
+from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlparse
 
 from loguru import logger
@@ -30,6 +31,7 @@ class DataProcessor:
 
     _CHUNK_SIZE_CHARS = 1500
     _CHUNK_OVERLAP_CHARS = 200
+    _RECENT_DEDUP_LOOKBACK_HOURS = 24
 
     def __init__(
         self,
@@ -115,6 +117,32 @@ class DataProcessor:
         combined = " ".join(snippet.text for snippet in transcript)
         return self._normalize_text(combined)
 
+    def _recent_processed_cutoff(self) -> int:
+        """Return a time-based cutoff for recent-ingest deduplication."""
+        run_timestamp = datetime.strptime(self.end, "%Y%m%d%H%M").replace(tzinfo=UTC)
+        cutoff = run_timestamp - timedelta(hours=self._RECENT_DEDUP_LOOKBACK_HOURS)
+        return int(cutoff.strftime("%Y%m%d%H%M"))
+
+    def _get_recent_video_ids(self, video_ids: list[str]) -> set[str]:
+        """Return video ids already ingested within the recent dedup window."""
+        if not video_ids or not self.spark.catalog.tableExists(self.videos_table):
+            return set()
+
+        cutoff = self._recent_processed_cutoff()
+        candidate_df = self.spark.createDataFrame(
+            [(video_id,) for video_id in video_ids], ["video_id"]
+        )
+
+        rows = (
+            self.spark.table(self.videos_table)
+            .where(col("processed") >= cutoff)
+            .select("video_id")
+            .distinct()
+            .join(candidate_df, on="video_id", how="inner")
+            .collect()
+        )
+        return {row["video_id"] for row in rows}
+
     @classmethod
     def _chunk_text(cls, text: str) -> list[str]:
         """Split text into overlapping fixed-size chunks (character-based)."""
@@ -134,10 +162,29 @@ class DataProcessor:
             logger.info("No URLs provided.")
             return None
 
-        records: list[dict] = []
-
+        unique_urls_by_video_id: dict[str, str] = {}
         for url in urls:
             video_id = self._extract_video_id(url)
+            if video_id in unique_urls_by_video_id:
+                logger.info(f"Skipping duplicate input URL for video_id={video_id}")
+                continue
+
+            unique_urls_by_video_id[video_id] = url
+
+        recent_existing_ids = self._get_recent_video_ids(list(unique_urls_by_video_id))
+        if recent_existing_ids:
+            logger.info(
+                "Skipping {} video(s) already ingested since processed >= {}",
+                len(recent_existing_ids),
+                self._recent_processed_cutoff(),
+            )
+
+        records: list[dict] = []
+
+        for video_id, url in unique_urls_by_video_id.items():
+            if video_id in recent_existing_ids:
+                continue
+
             try:
                 transcript_text = self._fetch_transcript_text(video_id)
                 if not transcript_text:
@@ -172,21 +219,12 @@ class DataProcessor:
             "ingest_ts", current_timestamp()
         )
 
-        df.write.format("delta").mode("ignore").saveAsTable(self.videos_table)
-        df.createOrReplaceTempView("new_videos")
+        if self.spark.catalog.tableExists(self.videos_table):
+            df.write.format("delta").mode("append").saveAsTable(self.videos_table)
+        else:
+            df.write.format("delta").saveAsTable(self.videos_table)
 
-        self.spark.sql(f"""
-            MERGE INTO {self.videos_table} target
-            USING new_videos source
-            ON target.video_id = source.video_id
-            WHEN NOT MATCHED THEN INSERT (
-                video_id, source_url, transcript_text, processed
-            ) VALUES (
-                source.video_id, source.source_url, source.transcript_text, source.processed
-            )
-        """)
-
-        logger.info(f"Merged {len(records)} transcript records into {self.videos_table}")
+        logger.info(f"Saved {len(records)} transcript records into {self.videos_table}")
         return records
 
     def process_chunks(self) -> None:

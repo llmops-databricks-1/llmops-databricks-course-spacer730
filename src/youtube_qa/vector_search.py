@@ -96,13 +96,3 @@ class VectorSearchManager:
         logger.info(f"Syncing vector search index: {self.index_name}")
         index.sync()
         logger.info("✓ Index sync triggered")
-
-    def search(self, query: str, num_results: int = 5, filters: dict | None = None) -> dict:
-        """Run a similarity search query."""
-        index = self.client.get_index(index_name=self.index_name)
-        return index.similarity_search(
-            query_text=query,
-            columns=["id", "text", "metadata"],
-            num_results=num_results,
-            filters=filters,
-        )
