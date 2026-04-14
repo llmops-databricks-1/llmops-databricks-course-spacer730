@@ -1,4 +1,4 @@
-"""Configuration management for Arxiv Curator."""
+"""Configuration management for YouTube QA."""
 
 from pathlib import Path
 
@@ -19,9 +19,9 @@ class ProjectConfig(BaseModel):
     warehouse_id: str = Field(..., description="Warehouse ID")
     vector_search_endpoint: str = Field(..., description="Vector search endpoint name")
     genie_space_id: str | None = Field(None, description="Genie space ID for MCP integration")
+    usage_policy_id: str | None = Field(None, description="Usage policy ID for resource access")
     system_prompt: str = Field(
-        default="You are a helpful AI assistant that helps users find and understand "
-        "research papers.",
+        default="You are a helpful AI assistant that answers questions about YouTube videos.",
         description="System prompt for the agent",
     )
 
@@ -29,15 +29,7 @@ class ProjectConfig(BaseModel):
 
     @classmethod
     def from_yaml(cls, config_path: str, env: str = "dev") -> "ProjectConfig":
-        """Load configuration from YAML file.
-
-        Args:
-            config_path: Path to the YAML configuration file
-            env: Environment name (dev, acc, prd)
-
-        Returns:
-            ProjectConfig instance
-        """
+        """Load configuration from a YAML file."""
         if env not in ["prd", "acc", "dev"]:
             raise ValueError(f"Invalid environment: {env}. Expected 'prd', 'acc', or 'dev'")
 
@@ -56,12 +48,12 @@ class ProjectConfig(BaseModel):
 
     @property
     def full_schema_name(self) -> str:
-        """Get fully qualified schema name."""
+        """Fully qualified schema name."""
         return f"{self.catalog}.{self.db_schema}"
 
     @property
     def full_volume_path(self) -> str:
-        """Get fully qualified volume path."""
+        """Fully qualified volume path."""
         return f"{self.catalog}.{self.schema}.{self.volume}"
 
 
@@ -82,7 +74,7 @@ class VectorSearchConfig(BaseModel):
 
 
 class ChunkingConfig(BaseModel):
-    """Chunking configuration."""
+    """Chunking configuration (not used by current YouTube pipeline)."""
 
     chunk_size: int = Field(512, description="Chunk size in tokens")
     chunk_overlap: int = Field(50, description="Overlap between chunks")
@@ -90,20 +82,10 @@ class ChunkingConfig(BaseModel):
 
 
 def load_config(config_path: str = "project_config.yml", env: str = "dev") -> ProjectConfig:
-    """Load project configuration.
-
-    Args:
-        config_path: Path to configuration file
-        env: Environment name
-
-    Returns:
-        ProjectConfig instance
-    """
-    # Handle relative paths from notebooks
+    """Load project configuration."""
     if not Path(config_path).is_absolute():
-        # Try to find config in parent directories
         current = Path.cwd()
-        for _ in range(3):  # Search up to 3 levels
+        for _ in range(3):
             candidate = current / config_path
             if candidate.exists():
                 config_path = str(candidate)
@@ -114,11 +96,7 @@ def load_config(config_path: str = "project_config.yml", env: str = "dev") -> Pr
 
 
 def get_env(spark: SparkSession) -> str:
-    """Get current environment from dbutils widget, falling back to ENV variable or 'dev'.
-
-    Returns:
-        Environment name (dev, acc, or prd)
-    """
+    """Get env from a dbutils widget or fall back to 'dev'."""
     try:
         dbutils = DBUtils(spark)
         return dbutils.widgets.get("env")
