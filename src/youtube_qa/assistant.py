@@ -216,10 +216,7 @@ class YouTubeTranscriptAgent:
             return "No transcript chunks are currently available in the index."
 
         return "\n\n".join(
-            (
-                f"[Chunk {chunk['chunk_index']} from video {chunk['video_id']}] "
-                f"{chunk['text']}"
-            )
+            (f"[Chunk {chunk['chunk_index']} from video {chunk['video_id']}] {chunk['text']}")
             for chunk in transcript_chunks
         )
 
@@ -255,7 +252,7 @@ If there is no transcript context yet for a content question, say that
 clearly and ask the user to provide a YouTube URL for ingestion.
 
 TOOL RESULTS:
-{tool_summary or 'No tools were used for this turn.'}
+{tool_summary or "No tools were used for this turn."}
 
 CONTEXT:
 {context}
