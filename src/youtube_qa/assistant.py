@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, cast
 
 from databricks.sdk import WorkspaceClient
 from loguru import logger
@@ -53,7 +54,10 @@ class YouTubeTranscriptAgent:
                     "type": "function",
                     "function": {
                         "name": "add_youtube_video",
-                        "description": "Download a YouTube transcript, chunk it, and sync it into the searchable index.",
+                        "description": (
+                            "Download a YouTube transcript, chunk it, and sync it into "
+                            "the searchable index."
+                        ),
                         "parameters": {
                             "type": "object",
                             "properties": {
@@ -74,7 +78,10 @@ class YouTubeTranscriptAgent:
                     "type": "function",
                     "function": {
                         "name": "remove_youtube_video",
-                        "description": "Remove a YouTube video's transcript chunks from the index and sync the index.",
+                        "description": (
+                            "Remove a YouTube video's transcript chunks from the index "
+                            "and sync the index."
+                        ),
                         "parameters": {
                             "type": "object",
                             "properties": {
@@ -95,7 +102,10 @@ class YouTubeTranscriptAgent:
                     "type": "function",
                     "function": {
                         "name": "reset_youtube_index",
-                        "description": "Remove all videos and chunks from the transcript tables and sync the index.",
+                        "description": (
+                            "Remove all videos and chunks from the transcript tables "
+                            "and sync the index."
+                        ),
                         "parameters": {
                             "type": "object",
                             "properties": {},
@@ -125,7 +135,10 @@ class YouTubeTranscriptAgent:
                     "type": "function",
                     "function": {
                         "name": "list_indexed_videos",
-                        "description": "List which YouTube videos are currently stored in the transcript tables.",
+                        "description": (
+                            "List which YouTube videos are currently stored in the "
+                            "transcript tables."
+                        ),
                         "parameters": {
                             "type": "object",
                             "properties": {},
@@ -149,7 +162,13 @@ class YouTubeTranscriptAgent:
 
     def _add_youtube_video(self, url: str) -> str:
         """Ingest a new YouTube video and sync the index."""
-        self.data_processor.process_and_save([url])
+        records = self.data_processor.process_and_save([url])
+        if records is None:
+            return (
+                f"No new transcript data was added for URL: {url}. "
+                "The video may already be indexed."
+            )
+
         self.vector_search_manager.sync_index_and_wait()
         return f"Added video and synced the index for URL: {url}"
 
@@ -214,12 +233,14 @@ You can manage a transcript index before answering questions.
 Use tools when needed.
 
 Rules:
-- If the user provides a YouTube URL and wants to chat about that video, call add_youtube_video first.
+- If the user provides a YouTube URL and wants to chat about that video,
+    call add_youtube_video first.
 - If the user asks to remove a video, call remove_youtube_video.
 - If the user asks to clear everything, call reset_youtube_index.
 - If you need to inspect current indexed state, call list_indexed_videos.
 - If you changed transcript data, ensure the index is synced.
-- Do not pretend you already know a video's contents unless transcript chunks have been indexed.
+- Do not pretend you already know a video's contents unless transcript
+    chunks have been indexed.
 """.strip()
 
     @staticmethod
@@ -230,7 +251,8 @@ You are a helpful YouTube Q&A agent.
 
 For index-management requests, use the tool results below as the source of truth.
 For video-content questions, use only the retrieved transcript context below.
-If there is no transcript context yet for a content question, say that clearly and ask the user to provide a YouTube URL for ingestion.
+If there is no transcript context yet for a content question, say that
+clearly and ask the user to provide a YouTube URL for ingestion.
 
 TOOL RESULTS:
 {tool_summary or 'No tools were used for this turn.'}
@@ -253,8 +275,8 @@ Keep the answer concise, grounded, and explicit about uncertainty.
         for _ in range(max_iterations):
             response = self.llm_client.chat.completions.create(
                 model=self.llm_endpoint,
-                messages=messages,
-                tools=self.get_tool_specs(),
+                messages=cast(Any, messages),
+                tools=cast(Any, self.get_tool_specs()),
                 max_tokens=1000,
             )
             assistant_message = response.choices[0].message
@@ -271,8 +293,8 @@ Keep the answer concise, grounded, and explicit about uncertainty.
                             "id": tool_call.id,
                             "type": "function",
                             "function": {
-                                "name": tool_call.function.name,
-                                "arguments": tool_call.function.arguments,
+                                "name": cast(Any, tool_call).function.name,
+                                "arguments": cast(Any, tool_call).function.arguments,
                             },
                         }
                         for tool_call in assistant_message.tool_calls
@@ -281,8 +303,8 @@ Keep the answer concise, grounded, and explicit about uncertainty.
             )
 
             for tool_call in assistant_message.tool_calls:
-                tool_name = tool_call.function.name
-                tool_args = json.loads(tool_call.function.arguments or "{}")
+                tool_name = cast(Any, tool_call).function.name
+                tool_args = json.loads(cast(Any, tool_call).function.arguments or "{}")
                 logger.info(f"Calling tool: {tool_name}({tool_args})")
 
                 try:
@@ -314,7 +336,7 @@ Keep the answer concise, grounded, and explicit about uncertainty.
 
         response = self.llm_client.chat.completions.create(
             model=self.llm_endpoint,
-            messages=answer_messages,
+            messages=cast(Any, answer_messages),
             max_tokens=1000,
         )
 

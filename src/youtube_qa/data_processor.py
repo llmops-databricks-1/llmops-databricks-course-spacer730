@@ -186,6 +186,14 @@ class DataProcessor:
             )
 
         records: list[dict] = []
+        failed_downloads: dict[str, str] = {}
+        pending_video_ids = [
+            video_id for video_id in unique_urls_by_video_id if video_id not in recent_existing_ids
+        ]
+
+        if not pending_video_ids:
+            logger.info("All requested videos were already ingested recently.")
+            return None
 
         for video_id, url in unique_urls_by_video_id.items():
             if video_id in recent_existing_ids:
@@ -195,6 +203,7 @@ class DataProcessor:
                 transcript_text = self._fetch_transcript_text(video_id)
                 if not transcript_text:
                     logger.warning(f"Empty transcript for video_id={video_id}")
+                    failed_downloads[video_id] = "Transcript was empty"
                     continue
 
                 records.append(
@@ -207,8 +216,15 @@ class DataProcessor:
                 )
             except Exception as exc:
                 logger.warning(f"Failed to fetch transcript for video_id={video_id}: {exc}")
+                failed_downloads[video_id] = str(exc)
 
         if not records:
+            if failed_downloads:
+                failure_summary = "; ".join(
+                    f"{video_id}: {reason}" for video_id, reason in failed_downloads.items()
+                )
+                raise RuntimeError(f"Failed to fetch transcripts: {failure_summary}")
+
             logger.info("No transcripts downloaded.")
             return None
 
@@ -380,12 +396,13 @@ class DataProcessor:
 
         return videos
 
-    def process_and_save(self, urls: list[str]) -> None:
+    def process_and_save(self, urls: list[str]) -> list[dict] | None:
         """Download transcripts and write transcript chunks."""
         records = self.download_and_store_transcripts(urls)
         if records is None:
             logger.info("No new videos to process. Exiting.")
-            return
+            return None
 
         self.process_chunks()
         logger.info("Processing complete!")
+        return records
