@@ -20,6 +20,9 @@ class ProjectConfig(BaseModel):
     vector_search_endpoint: str = Field(..., description="Vector search endpoint name")
     genie_space_id: str | None = Field(None, description="Genie space ID for MCP integration")
     usage_policy_id: str | None = Field(None, description="Usage policy ID for resource access")
+    lakebase_project_id: str = Field(..., description="Lakebase project id")
+    genie_space_id: str | None = Field(None, description="Genie space ID for MCP integration")
+    experiment_name: str = Field(None, description="Experiment name")
     system_prompt: str = Field(
         default="You are a helpful AI assistant that helps users find and understand "
         "research papers.",

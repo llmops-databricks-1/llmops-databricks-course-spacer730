@@ -9,8 +9,10 @@ dev:
   embedding_endpoint: databricks-gte-large-en
   warehouse_id: 9c9d5a71fb3773e4
   vector_search_endpoint: llmops_course_vs_endpoint
-  genie_space_id: placeholder
+  genie_space_id: 01f12fa3e50511a4a105e01dc8738f39
   usage_policy_id: b95878e6-60b1-4aca-a137-fef6c6420e2a
+  lakebase_project_id: arxiv-agent-lakebase-hossein
+  experiment_name: /Shared/arxiv-curator-course
 
 # Acceptance/Staging environment
 acc:
@@ -23,6 +25,8 @@ acc:
   vector_search_endpoint: llmops_course_vs_endpoint
   genie_space_id: placeholder
   usage_policy_id: placeholder
+  lakebase_project_id: placeholder
+  experiment_name: /Shared/arxiv-curator-course
 
 # Production environment
 prd:
@@ -35,6 +39,8 @@ prd:
   vector_search_endpoint: llmops_course_vs_endpoint
   genie_space_id: placeholder
   usage_policy_id: placeholder
+  lakebase_project_id: placeholder
+  experiment_name: /Shared/arxiv-curator-course
 
 # Model configuration
 model_config:
