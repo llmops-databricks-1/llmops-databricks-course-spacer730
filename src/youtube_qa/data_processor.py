@@ -111,6 +111,19 @@ class DataProcessor:
         """Normalize transcript text by collapsing whitespace."""
         return re.sub(r"\s+", " ", text).strip()
 
+    def _get_unique_urls_by_video_id(self, urls: list[str]) -> dict[str, str]:
+        """Return input URLs keyed by unique YouTube video id."""
+        unique_urls_by_video_id: dict[str, str] = {}
+        for url in urls:
+            video_id = self._extract_video_id(url)
+            if video_id in unique_urls_by_video_id:
+                logger.info(f"Skipping duplicate input URL for video_id={video_id}")
+                continue
+
+            unique_urls_by_video_id[video_id] = url
+
+        return unique_urls_by_video_id
+
     def _fetch_transcript_text(self, video_id: str) -> str:
         """Fetch transcript and return as plain text."""
         transcript = self.ytt_api.fetch(video_id)
@@ -162,14 +175,7 @@ class DataProcessor:
             logger.info("No URLs provided.")
             return None
 
-        unique_urls_by_video_id: dict[str, str] = {}
-        for url in urls:
-            video_id = self._extract_video_id(url)
-            if video_id in unique_urls_by_video_id:
-                logger.info(f"Skipping duplicate input URL for video_id={video_id}")
-                continue
-
-            unique_urls_by_video_id[video_id] = url
+        unique_urls_by_video_id = self._get_unique_urls_by_video_id(urls)
 
         recent_existing_ids = self._get_recent_video_ids(list(unique_urls_by_video_id))
         if recent_existing_ids:
@@ -292,6 +298,87 @@ class DataProcessor:
             SET TBLPROPERTIES (delta.enableChangeDataFeed = true)
         """)
         logger.info(f"Change Data Feed enabled for {self.chunks_table}")
+
+    def reset_pipeline_tables(self) -> None:
+        """Remove all rows from the processor-managed pipeline tables."""
+        for table_name in [self.chunks_table, self.videos_table]:
+            if not self.spark.catalog.tableExists(table_name):
+                logger.info(f"Skipping missing table: {table_name}")
+                continue
+
+            logger.info(f"Truncating table: {table_name}")
+            self.spark.sql(f"TRUNCATE TABLE {table_name}")
+
+        logger.info("Pipeline tables reset complete")
+
+    def remove_videos_by_url(self, urls: list[str]) -> None:
+        """Remove transcript and chunk rows for the provided YouTube URLs."""
+        if not urls:
+            logger.info("No URLs provided.")
+            return
+
+        unique_video_ids = list(self._get_unique_urls_by_video_id(urls))
+        if not unique_video_ids:
+            logger.info("No video ids resolved from the provided URLs.")
+            return
+
+        quoted_video_ids = ", ".join(f"'{video_id}'" for video_id in unique_video_ids)
+
+        if self.spark.catalog.tableExists(self.chunks_table):
+            logger.info(
+                "Removing chunk rows for {} video(s) from {}",
+                len(unique_video_ids),
+                self.chunks_table,
+            )
+            self.spark.sql(
+                f"DELETE FROM {self.chunks_table} WHERE video_id IN ({quoted_video_ids})"
+            )
+        else:
+            logger.info(f"Skipping missing table: {self.chunks_table}")
+
+        if self.spark.catalog.tableExists(self.videos_table):
+            logger.info(
+                "Removing transcript rows for {} video(s) from {}",
+                len(unique_video_ids),
+                self.videos_table,
+            )
+            self.spark.sql(
+                f"DELETE FROM {self.videos_table} WHERE video_id IN ({quoted_video_ids})"
+            )
+        else:
+            logger.info(f"Skipping missing table: {self.videos_table}")
+
+        logger.info("Selective video removal complete")
+
+    def list_indexed_videos(self) -> list[dict]:
+        """List unique indexed videos from the transcript table."""
+        if not self.spark.catalog.tableExists(self.videos_table):
+            return []
+
+        rows = (
+            self.spark.table(self.videos_table)
+            .select("video_id", "source_url", "processed")
+            .orderBy(col("processed").desc())
+            .collect()
+        )
+
+        videos: list[dict] = []
+        seen_video_ids: set[str] = set()
+        for row in rows:
+            video_id = row["video_id"]
+            if video_id in seen_video_ids:
+                continue
+
+            seen_video_ids.add(video_id)
+            videos.append(
+                {
+                    "video_id": video_id,
+                    "source_url": row["source_url"],
+                    "processed": row["processed"],
+                }
+            )
+
+        return videos
 
     def process_and_save(self, urls: list[str]) -> None:
         """Download transcripts and write transcript chunks."""

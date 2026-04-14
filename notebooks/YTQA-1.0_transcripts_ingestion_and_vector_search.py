@@ -48,7 +48,7 @@ logger.info(f"Schema: {cfg.schema}")
 # COMMAND ----------
 
 youtube_urls: list[str] = [
-    "https://www.youtube.com/watch?v=Us-w_j_4qGo"
+    "https://www.youtube.com/watch?v=fXgiQV4Cy74"
     # "https://www.youtube.com/watch?v=VIDEO_ID",
     # "https://youtu.be/VIDEO_ID",
 ]
@@ -74,6 +74,7 @@ processor = DataProcessor(
     proxy_username=ws_username,
     proxy_password=ws_password,
 )
+processor.reset_pipeline_tables()
 processor.process_and_save(youtube_urls)
 
 # COMMAND ----------
@@ -89,7 +90,7 @@ chunks_table = f"{cfg.catalog}.{cfg.schema}.youtube_chunks_table"
 logger.info(f"Videos table: {videos_table}")
 logger.info(f"Chunks table: {chunks_table}")
 
-spark.table(videos_table).orderBy("ingest_ts", ascending=False).show(truncate=False)
+spark.table(videos_table).orderBy("ingest_ts", ascending=False).show(truncate=True)
 
 # COMMAND ----------
 
@@ -153,30 +154,15 @@ logger.info("✓ Index sync triggered")
 
 query = "Summarize the main points of the video."
 
-results = index.similarity_search(
-    query_text=query,
+results = vs_manager.search_transcript_chunks(
+    query=query,
+    query_type="HYBRID",
     columns=["id", "text", "video_id"],
     num_results=5,
 )
 
-results
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## 8) Optional: parse results into a list of dicts
-
-# COMMAND ----------
-
-def parse_vector_search_results(results: dict) -> list[dict]:
-    """Convert Vector Search results to a list of dicts."""
-    columns = [c["name"] for c in results.get("manifest", {}).get("columns", [])]
-    data_array = results.get("result", {}).get("data_array", [])
-    return [dict(zip(columns, row, strict=False)) for row in data_array]
-
-
-parsed = parse_vector_search_results(results)
-parsed[:3]
+logger.info(f"Retrieved {len(results)} matching chunks")
+logger.info(results[:3])
 
 # COMMAND ----------
 

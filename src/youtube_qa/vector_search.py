@@ -1,5 +1,7 @@
 """Vector search management for YouTube transcript chunks."""
 
+from datetime import timedelta
+
 from databricks.sdk import WorkspaceClient
 from databricks.vector_search.client import VectorSearchClient, VectorSearchIndex
 from loguru import logger
@@ -96,3 +98,38 @@ class VectorSearchManager:
         logger.info(f"Syncing vector search index: {self.index_name}")
         index.sync()
         logger.info("✓ Index sync triggered")
+
+    def sync_index_and_wait(self, timeout_seconds: int = 300) -> None:
+        """Sync the vector search index and wait until updates are queryable."""
+        index = self.create_or_get_index()
+        logger.info(f"Syncing vector search index and waiting for updates: {self.index_name}")
+        index.sync()
+        index.wait_until_ready(
+            wait_for_updates=True,
+            timeout=timedelta(seconds=timeout_seconds),
+        )
+        logger.info("✓ Index sync completed and is ready for queries")
+
+    @staticmethod
+    def _parse_similarity_search_results(results: dict) -> list[dict]:
+        """Convert Vector Search results to a list of dictionaries."""
+        columns = [column["name"] for column in results.get("manifest", {}).get("columns", [])]
+        data_array = results.get("result", {}).get("data_array", [])
+        return [dict(zip(columns, row, strict=False)) for row in data_array]
+
+    def search_transcript_chunks(
+        self,
+        query: str,
+        num_results: int = 5,
+        columns: list[str] | None = None,
+        query_type: str = "hybrid",
+    ) -> list[dict]:
+        """Search the YouTube transcript index and return parsed rows."""
+        index = self.client.get_index(index_name=self.index_name)
+        search_results = index.similarity_search(
+            query_text=query,
+            columns=columns or ["text", "video_id", "chunk_index"],
+            num_results=num_results,
+            query_type=query_type,
+        )
+        return self._parse_similarity_search_results(search_results)
